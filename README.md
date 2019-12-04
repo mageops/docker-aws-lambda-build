@@ -1,21 +1,16 @@
-You need to build the image, mount the current directory as `/build`
-and execute the container. The build script should be residing in the local directory
-and be named build.sh as it's automatically ran by the container (ENTRYPOINT).
+
+
+### Build container
 
 ```
-# Build
-docker build -t cs-lambda-build .
+docker build . -t mageops/aws-lambda-build
 ```
 
+### Build lambda
+
 ```
-# Build the lambda zip
-docker run --rm -v "$PWD":/build cs-lambda-build python name-of-your lambda
+docker run --rm -v "$(PWD):/var/app" mageops/aws-lambda-build python2 name-of-your-lambda
+docker run --rm -v "$(PWD):/var/app" mageops/aws-lambda-build python3 name-of-your-lambda
+docker run --rm -v "$(PWD):/var/app" mageops/aws-lambda-build nodejs name-of-your-lambda
+docker run --rm -v "$(PWD):/var/app" mageops/aws-lambda-build nodejs-yarn name-of-your-lambda
 ```
-
-Where `python` is the execution environment type, currently supported are:
-- python
-
-Node support is underway...
-
-You can also use a prebuilt image from our repo:
-docker.creativestyle.pl:5050/m2c/lambda-build:latest
