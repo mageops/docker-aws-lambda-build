@@ -7,13 +7,21 @@ PS It's on [Docker Hub](https://hub.docker.com/r/mageops/aws-lambda-build).
 
 ### Build container
 
-```
+#### Build using defaults (w/nodejs12.x)
+
+```bash
 docker build . -t mageops/aws-lambda-build
+```
+
+#### Build w/nodejs10.x (still required for Cloudfront Edge Lambdas)
+
+```bash
+docker build . -t mageops/aws-lambda-build:nodejs10.x --build-arg LAMBDA_NODEJS_RELEASE=10.x
 ```
 
 ### Build lambda
 
-```
+```bash
 docker run --rm -v "$(pwd):/var/app" mageops/aws-lambda-build python2 name-of-your-lambda
 docker run --rm -v "$(pwd):/var/app" mageops/aws-lambda-build python3 name-of-your-lambda
 docker run --rm -v "$(pwd):/var/app" mageops/aws-lambda-build nodejs name-of-your-lambda
