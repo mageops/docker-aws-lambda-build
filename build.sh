@@ -45,7 +45,7 @@ function build_python2() {
 	PYTHONPATH="$LAMBDA_BUILD_DIR" pip2 freeze -r requirements.txt --local | tee "$LAMBDA_BUILD_DIR/requirements-built.txt"
 
 	log_stage "Precompile python sources"
-	(python2 -m compileall "$LAMBDA_BUILD_DIR/" || log_info "Ignore compilation errors and continue...")
+	python2 -m compileall "$LAMBDA_BUILD_DIR/"
 }
 
 function build_python3() {
@@ -62,7 +62,7 @@ function build_python3() {
 	pip3 freeze | tee "$LAMBDA_BUILD_DIR/requirements-built.txt"
 
 	log_stage "Precompile python sources"
-	(python3 -m compileall "$LAMBDA_BUILD_DIR/" || log_info "Ignore compilation errors and continue...")
+	python3 -m compileall "$LAMBDA_BUILD_DIR/"
 }
 
 function build_nodejs_npm() {
@@ -94,7 +94,7 @@ function build_trim() {
 		-type d -name '.git' -or \
 		-type d -iname '__tests__' -or \
 		-type f -iname '*.md' \
-			| xargs -I{dir} rm -rvf {dir} 
+			| xargs -I{dir} rm -rvf {dir}
 }
 
 function build_package() {
