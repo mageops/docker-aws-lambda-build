@@ -38,6 +38,8 @@ RUN yum -y install \
     && pip3 install --user \
         boto3 \
         botocore
+        
+RUN yum -y clean all
 
 ENV LAMBDA_NODEJS_RELEASE="$LAMBDA_NODEJS_RELEASE" \
     LAMBDA_PYTHON2_RELEASE="2.7" \
