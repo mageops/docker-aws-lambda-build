@@ -1,4 +1,4 @@
-[![Docker Hub Build Status](https://img.shields.io/docker/build/mageops/aws-lambda-build?label=Docker+Image+Build)](https://hub.docker.com/r/mageops/aws-lambda-build/builds)
+[![Docker Hub Build Status](https://img.shields.io/docker/cloud/build/mageops/aws-lambda-build?label=Docker+Image+Build)](https://hub.docker.com/r/mageops/aws-lambda-build/builds)
 # MageOps Docker Container for building AWS Lambda Docker Packages
 
 Simple, unopinionated, amamazonlinux-base contaiener that builds
