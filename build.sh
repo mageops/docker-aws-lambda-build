@@ -179,7 +179,6 @@ fi
 build_hook_post_build
 popd
 
-build_custom
 build_trim
 build_package
 
