@@ -4,7 +4,12 @@ set -euo pipefail
 
 export LAMBDA_BUILD_DIR="${LAMBDA_BUILD_DIR:-/var/app-local}"
 export LAMBDA_WORK_DIR="${LAMBDA_WORK_DIR:-/var/app}"
-export LAMBDA_POST_BUILD_SCRIPT="${LAMBDA_POST_BUILD_SCRIPT:-lambda-post-build.sh}"
+
+export LAMBDA_BUILD_HOOK_POST_BUILD="${LAMBDA_POST_BUILD_SCRIPT:-.lambda-build-hook/post-build.sh}"
+export LAMBDA_BUILD_HOOK_PRE_BUILD="${LAMBDA_PRE_BUILD_SCRIPT:-.lambda-build-hook/pre-build.sh}"
+
+# Directory where custom shared libraries shall be placed in order to be loaded automatically.
+export LAMBDA_SHARED_LIB_DIR="${LAMBDA_SHARED_LIB_DIR:-${LAMBDA_WORK_DIR}/lib}"
 
 export LAMBDA_PYTHON2_RELEASE="${LAMBDA_PYTHON2_RELEASE:--unknown}"
 export LAMBDA_PYTHON3_RELEASE="${LAMBDA_PYTHON3_RELEASE:--unknown}"
@@ -108,12 +113,21 @@ function build_package() {
 }
 
 
-function build_custom() {
-	if [[ -x "${LAMBDA_POST_BUILD_SCRIPT}" ]] ; then
-		log_stage "Executing custom post build script: ${LAMBDA_POST_BUILD_SCRIPT}"
-		"./${LAMBDA_POST_BUILD_SCRIPT}"
+function build_hook_pre_build() {
+	if [[ -x "${LAMBDA_BUILD_HOOK_PRE_BUILD}" ]] ; then
+		log_stage "Executing custom pre build script: ${LAMBDA_BUILD_HOOK_PRE_BUILD}"
+		"./${LAMBDA_BUILD_HOOK_PRE_BUILD}"
 	else
-		log_info "Custom post build script (${LAMBDA_POST_BUILD_SCRIPT}) not found, skipping"
+		log_info "Skipping absent custom pre build script: ${LAMBDA_BUILD_HOOK_PRE_BUILD}"
+	fi
+}
+
+function build_hook_post_build() {
+	if [[ -x "${LAMBDA_BUILD_HOOK_POST_BUILD}" ]] ; then
+		log_stage "Executing custom post build script: ${LAMBDA_BUILD_HOOK_POST_BUILD}"
+		"./${LAMBDA_BUILD_HOOK_POST_BUILD}"
+	else
+		log_info "Skipping absent custom post build script: ${LAMBDA_BUILD_HOOK_POST_BUILD}"
 	fi
 }
 
@@ -154,12 +168,15 @@ esac
 build_prepare
 
 pushd "${LAMBDA_BUILD_DIR}/"
+build_hook_pre_build
 build_$LAMBDA_BUILD
 
 if [[ ! -z "$LAMBDA_CUSTOM_BUILD_CMD" ]] ; then
 	log_stage "Run custom command: $LAMBDA_CUSTOM_BUILD_CMD"
 	command $LAMBDA_CUSTOM_BUILD_CMD
 fi
+
+build_hook_post_build
 popd
 
 build_custom
