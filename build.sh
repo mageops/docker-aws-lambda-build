@@ -4,6 +4,7 @@ set -euo pipefail
 
 export LAMBDA_BUILD_DIR="${LAMBDA_BUILD_DIR:-/var/app-local}"
 export LAMBDA_WORK_DIR="${LAMBDA_WORK_DIR:-/var/app}"
+export LAMBDA_POST_BUILD_SCRIPT="${LAMBDA_POST_BUILD_SCRIPT:-lambda-post-build.sh}"
 
 export LAMBDA_PYTHON2_RELEASE="${LAMBDA_PYTHON2_RELEASE:--unknown}"
 export LAMBDA_PYTHON3_RELEASE="${LAMBDA_PYTHON3_RELEASE:--unknown}"
@@ -106,6 +107,16 @@ function build_package() {
 	popd
 }
 
+
+function build_custom() {
+	if [[ -x "${LAMBDA_POST_BUILD_SCRIPT}" ]] ; then
+		log_stage "Executing custom post build script: ${LAMBDA_POST_BUILD_SCRIPT}"
+		"./${LAMBDA_POST_BUILD_SCRIPT}"
+	else
+		log_info "Custom post build script (${LAMBDA_POST_BUILD_SCRIPT}) not found, skipping"
+	fi
+}
+
 function show_help() {
 echo -e "\
 Usage: $(basename "$0") <env_type> <lambda_release_name> [custom_build_command]\n\
@@ -151,6 +162,7 @@ if [[ ! -z "$LAMBDA_CUSTOM_BUILD_CMD" ]] ; then
 fi
 popd
 
+build_custom
 build_trim
 build_package
 
