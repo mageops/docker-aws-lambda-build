@@ -11,7 +11,6 @@ export LAMBDA_BUILD_HOOK_PRE_BUILD="${LAMBDA_PRE_BUILD_SCRIPT:-.lambda-build-hoo
 # Directory where custom shared libraries shall be placed in order to be loaded automatically.
 export LAMBDA_SHARED_LIB_DIR="${LAMBDA_SHARED_LIB_DIR:-${LAMBDA_WORK_DIR}/lib}"
 
-export LAMBDA_PYTHON2_RELEASE="${LAMBDA_PYTHON2_RELEASE:--unknown}"
 export LAMBDA_PYTHON3_RELEASE="${LAMBDA_PYTHON3_RELEASE:--unknown}"
 export LAMBDA_NODEJS_RELEASE="${LAMBDA_NODEJS_RELEASE:--unknown}"
 
@@ -34,24 +33,6 @@ function build_prepare() {
 		--exclude '*.pyc' \
 		--exclude '*.md' \
 		"${LAMBDA_WORK_DIR}/" "${LAMBDA_BUILD_DIR}/"
-}
-
-function build_python2() {
-	LAMBDA_PACKAGE_NAME="${LAMBDA_PACKAGE_NAME:-$LAMBDA_NAME.python${LAMBDA_PYTHON2_RELEASE}}"
-
-	log_stage "Start python2 build"
-	log_info "Python: $(python2 --version) ($(which python2))"
-	log_info "Pip: $(pip2 --version) ($(which pip2))"
-
-	log_stage "Install python requirements"
-	pip2 install -r requirements.txt -t "$LAMBDA_BUILD_DIR"
-
-	ls -al
-	log_stage "Store list of installed python deps"
-	PYTHONPATH="$LAMBDA_BUILD_DIR" pip2 freeze -r requirements.txt --local | tee "$LAMBDA_BUILD_DIR/requirements-built.txt"
-
-	log_stage "Precompile python sources"
-	python2 -m compileall "$LAMBDA_BUILD_DIR/"
 }
 
 function build_python3() {
@@ -136,7 +117,6 @@ echo -e "\
 Usage: $(basename "$0") <env_type> <lambda_release_name> [custom_build_command]\n\
 \n\
 Available env types:\n\
-  - python2       (python$LAMBDA_PYTHON2_RELEASE) \n\
   - python3       (python$LAMBDA_PYTHON3_RELEASE) \n\
   - nodejs        (nodejs$LAMBDA_NODEJS_RELEASE) \n\
   - nodejs-yarn   (nodejs$LAMBDA_NODEJS_RELEASE)\
@@ -158,10 +138,9 @@ export LAMBDA_CUSTOM_BUILD_CMD="$@"
 log_info "Host: $(uname -a)"
 
 case "$LAMBDA_ENV_TYPE" in
-    "python2")             LAMBDA_BUILD="python2" ;;
     "python3")             LAMBDA_BUILD="python3" ;;
-		"nodejs")              LAMBDA_BUILD="nodejs_npm" ;;
-		"nodejs-yarn")         LAMBDA_BUILD="nodejs_yarn" ;;
+	"nodejs")              LAMBDA_BUILD="nodejs_npm" ;;
+	"nodejs-yarn")         LAMBDA_BUILD="nodejs_yarn" ;;
     *)                     echo -e "Error - unknown lambda environemnt type: $LAMBDA_ENV_TYPE\n" >&2 && show_help && exit 9 ;;
 esac
 
