@@ -2,165 +2,294 @@
 
 set -euo pipefail
 
-export LAMBDA_BUILD_DIR="${LAMBDA_BUILD_DIR:-/var/app-local}"
-export LAMBDA_WORK_DIR="${LAMBDA_WORK_DIR:-/var/app}"
+DEFAULT_PYTHON_VERSION=3.11
+DEFAULT_NODEJS_VERSION=18.x
 
-export LAMBDA_BUILD_HOOK_POST_BUILD="${LAMBDA_POST_BUILD_SCRIPT:-.lambda-build-hook/post-build.sh}"
-export LAMBDA_BUILD_HOOK_PRE_BUILD="${LAMBDA_PRE_BUILD_SCRIPT:-.lambda-build-hook/pre-build.sh}"
+# --python-version
+PYTHON_VERSION=$DEFAULT_PYTHON_VERSION
+# --nodejs-version
+NODEJS_VERSION=$DEFAULT_NODEJS_VERSION
+# 1st arg
+CODE_DIR=
+# --package-name, -p
+PACKAGE_NAME=
+# --arch
+ARCH=x86_64
+# --lang
+LANG=
 
-# Directory where custom shared libraries shall be placed in order to be loaded automatically.
-export LAMBDA_SHARED_LIB_DIR="${LAMBDA_SHARED_LIB_DIR:-${LAMBDA_WORK_DIR}/lib}"
+AWS_LAMBDA_BASE_REPO=https://github.com/aws/aws-lambda-base-images
 
-export LAMBDA_PYTHON3_RELEASE="${LAMBDA_PYTHON3_RELEASE:--unknown}"
-export LAMBDA_NODEJS_RELEASE="${LAMBDA_NODEJS_RELEASE:--unknown}"
+LOG_COLOR_RED=31
+LOG_COLOR_GREEN=32
+LOG_COLOR_YELLOW=33
+LOG_COLOR_BLUE=34
+LOG_COLOR_MAGENTA=35
+LOG_COLOR_CYAN=36
+LOG_COLOR_WHITE=37
+LOG_COLOR_GREY=90
 
-function log_stage() { echo -e "\n\e[35m***\e[0m \e[33m$@\e[0m \e[35m***\e[0m\n"; }
-function log_info() { echo -e "\e[35m---\e[0m \e[34m$@\e[0m"; }
+LOG_LEVEL_NAME_INFO="INFO   "
+LOG_LEVEL_NAME_WARN="WARN   "
+LOG_LEVEL_NAME_ERROR="ERROR  "
+LOG_LEVEL_NAME_SUCCESS="SUCCESS"
 
-function build_prepare() {
-	log_stage "Sync sources to build directory"
+CODE_SYNC_GLOBAL_EXCLUDE=(
+    '/test/'
+    '.git/'
+    '*.md'
+    '.gitignore'
+    '*.zip'
+)
 
-	rsync \
-		--archive \
-		--verbose \
-		--itemize-changes \
-		--delete \
-		--exclude '/test/' \
-		--exclude 'node_modules/' \
-		--exclude '.git/' \
-		--exclude '__tests__/' \
-		--exclude '__pycache__/' \
-		--exclude '*.pyc' \
-		--exclude '*.md' \
-		"${LAMBDA_WORK_DIR}/" "${LAMBDA_BUILD_DIR}/"
+CODE_SYNC_PYTHON_EXCLUDE=(
+    '__tests__/'
+    '__pycache__/'
+    '*.pyc'
+)
+
+CODE_SYNC_NODEJS_EXCLUDE=(
+    'node_modules/'
+)
+
+log::with_color() {
+    local color=$1
+    shift
+    echo -e "$(log::color "$color" "$@")" >&2
 }
 
-function build_python3() {
-	LAMBDA_PACKAGE_NAME="${LAMBDA_PACKAGE_NAME:-$LAMBDA_NAME.python${LAMBDA_PYTHON3_RELEASE}}"
-
-	log_stage "Start python3 build"
-	log_info "Python: $(python3 --version) ($(which python3))"
-	log_info "Pip: $(pip3 --version) ($(which pip3))"
-
-	log_stage "Install python requirements"
-	pip3 install -r requirements.txt -t "$LAMBDA_BUILD_DIR"
-
-	log_stage "Store list of installed python deps"
-	pip3 freeze | tee "$LAMBDA_BUILD_DIR/requirements-built.txt"
-
-	log_stage "Precompile python sources"
-	python3 -m compileall "$LAMBDA_BUILD_DIR/"
+log::with_details() {
+    local color=$1
+    local level=$2
+    shift 2
+    echo -e "$(log::color "$LOG_COLOR_GREY" "$(log::_date)") $(log::color "$LOG_COLOR_GREY" "$level") $(log::color "$color" "$@")" >&2
 }
 
-function build_nodejs_npm() {
-	LAMBDA_PACKAGE_NAME="${LAMBDA_PACKAGE_NAME:-$LAMBDA_NAME.nodejs${LAMBDA_NODEJS_RELEASE}}"
-
-	log_stage "Start nodejs build using npm"
-	log_info "Node: $(node --version) ($(which node))"
-	log_info "Npm:  $(npm --version) ($(which npm))"
-
-	log_stage "Run npm install"
-	npm install --production
+log::color() {
+    local color=$1
+    shift
+    echo -en "\e[${color}m$@\e[0m"
 }
 
-function build_nodejs_yarn() {
-	LAMBDA_PACKAGE_NAME="${LAMBDA_PACKAGE_NAME:-$LAMBDA_NAME.nodejs${LAMBDA_NODEJS_RELEASE}}"
-
-	log_stage "Start nodejs build using yarn"
-	log_info "Node: $(node --version) ($(which node))"
-	log_info "Yarn: $(yarn --version) ($(which yarn))"
-
-	log_stage "Running yarn default script"
-	yarn --prod
+log::_date() {
+    date +"%Y-%m-%d %H:%M:%S"
 }
 
-function build_trim() {
-	log_stage "Trim build files"
-
-	find "${LAMBDA_BUILD_DIR}" \
-		-type d -name '.git' -or \
-		-type d -iname '__tests__' -or \
-		-type f -iname '*.md' \
-			| xargs -I{dir} rm -rvf {dir}
+log::info() {
+    log::with_details $LOG_COLOR_BLUE "$LOG_LEVEL_NAME_INFO" "$@"
 }
 
-function build_package() {
-	log_stage "Create deploy package archive"
-
-	pushd "${LAMBDA_BUILD_DIR}"
-		rm -vf "${LAMBDA_NAME}.*.zip"
-		zip -qr9 "${LAMBDA_WORK_DIR}/${LAMBDA_PACKAGE_NAME}.zip" .
-	popd
+log::warn() {
+    log::with_details $LOG_COLOR_YELLOW "$LOG_LEVEL_NAME_WARN" "$@"
 }
 
-
-function build_hook_pre_build() {
-	if [[ -x "${LAMBDA_BUILD_HOOK_PRE_BUILD}" ]] ; then
-		log_stage "Executing custom pre build script: ${LAMBDA_BUILD_HOOK_PRE_BUILD}"
-		"./${LAMBDA_BUILD_HOOK_PRE_BUILD}"
-	else
-		log_info "Skipping absent custom pre build script: ${LAMBDA_BUILD_HOOK_PRE_BUILD}"
-	fi
+log::error() {
+    log::with_details $LOG_COLOR_RED "$LOG_LEVEL_NAME_ERROR" "$@"
 }
 
-function build_hook_post_build() {
-	if [[ -x "${LAMBDA_BUILD_HOOK_POST_BUILD}" ]] ; then
-		log_stage "Executing custom post build script: ${LAMBDA_BUILD_HOOK_POST_BUILD}"
-		"./${LAMBDA_BUILD_HOOK_POST_BUILD}"
-	else
-		log_info "Skipping absent custom post build script: ${LAMBDA_BUILD_HOOK_POST_BUILD}"
-	fi
+log::success() {
+    log::with_details $LOG_COLOR_GREEN "$LOG_LEVEL_NAME_SUCCESS" "$@"
 }
 
-function show_help() {
-echo -e "\
-Usage: $(basename "$0") <env_type> <lambda_release_name> [custom_build_command]\n\
-\n\
-Available env types:\n\
-  - python3       (python$LAMBDA_PYTHON3_RELEASE) \n\
-  - nodejs        (nodejs$LAMBDA_NODEJS_RELEASE) \n\
-  - nodejs-yarn   (nodejs$LAMBDA_NODEJS_RELEASE)\
-" >&2
+log::stage() {
+    log::with_color $LOG_COLOR_MAGENTA "   *** $@ ***"
 }
 
-if [[ $# -lt 2 ]] ; then
-	show_help
-	exit 1
-fi
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --python-version)
+            PYTHON_VERSION="$2"
+            shift 2
+            ;;
+        --nodejs-version)
+            NODEJS_VERSION="$2"
+            shift 2
+            ;;
+        --package-name|-p)
+            PACKAGE_NAME="$2"
+            shift 2
+            ;;
+        --arch)
+            ARCH="$2"
+            shift 2
+            ;;
+        --lang)
+            LANG="$2"
+            shift 2
+            ;;
+        *)
+            CODE_DIR="$1"
+            shift
+            ;;
+        esac
+    done
 
-export LAMBDA_ENV_TYPE="$1"
-export LAMBDA_NAME="${2:-deploy-package}"
+    if [[ -z "$LANG" ]]; then
+        echo "Error: lang is required" >&2
+        print_help
+        exit 1
+    fi
 
-shift 2
+    if [[ -z "$CODE_DIR" ]]; then
+        echo "Error: code_dir is required" >&2
+        print_help
+        exit 1
+    fi
 
-export LAMBDA_CUSTOM_BUILD_CMD="$@"
+    if [[ -z "$PACKAGE_NAME" ]]; then
+        PACKAGE_NAME="$( basename $CODE_DIR)"
+    fi
+}
 
-log_info "Host: $(uname -a)"
+print_help() {
+    echo "Usage: $(basename "$0") [options] <code_dir>"
+    echo "Options:"
+    echo "  --lang <lang>               Language to build (required)"
+    echo "  --arch <arch>               Architecture to build for (default: $ARCH)"
+    echo "  --python-version <version>  Python version to use (default: $DEFAULT_PYTHON_VERSION)"
+    echo "  --nodejs-version <version>  Node.js version to use (default: $DEFAULT_NODEJS_VERSION)"
+    echo "  --package-name, -p <name>   Package name (default: <code_dir>)"
+}
 
-case "$LAMBDA_ENV_TYPE" in
-    "python3")             LAMBDA_BUILD="python3" ;;
-	"nodejs")              LAMBDA_BUILD="nodejs_npm" ;;
-	"nodejs-yarn")         LAMBDA_BUILD="nodejs_yarn" ;;
-    *)                     echo -e "Error - unknown lambda environemnt type: $LAMBDA_ENV_TYPE\n" >&2 && show_help && exit 9 ;;
-esac
+clone_base_repo() {
+    local branch=$1
+    local dir=$2
+    log::info "Cloning branch $branch of lambda base repo"
+    if ! git clone --depth 1 --branch "$branch" "$AWS_LAMBDA_BASE_REPO" "$dir";then
+        log::error "Failed to clone lambda base repo"
+        log::error "Is runtime version supported?"
+        exit 1
+    fi
+}
 
-build_prepare
+build_docker_image() {
+    local dir=$1
+    local tag=$2
+    local dockerfile="$dir/$3"
+    log::info "Building docker image: $tag"
+    if ! docker build -t "$tag" -f "$dockerfile" "$dir"; then
+        log::error "Failed to build docker image"
+        exit 1
+    fi
+    log::success "Docker image built: $tag"
+}
 
-pushd "${LAMBDA_BUILD_DIR}/"
-build_hook_pre_build
-build_$LAMBDA_BUILD
+docker_run_script() {
+    local runtime_name=$1
+    local work_dir=$2
+    local script=$3
+    local image="mageops_lambda:$runtime_name-$ARCH"
 
-if [[ ! -z "$LAMBDA_CUSTOM_BUILD_CMD" ]] ; then
-	log_stage "Run custom command: $LAMBDA_CUSTOM_BUILD_CMD"
-	command $LAMBDA_CUSTOM_BUILD_CMD
-fi
+    if ! docker run --rm -v "$work_dir:/work" -w /work \
+        -u "$(id -u):$(id -g)" \
+        --entrypoint sh "$image" -c "$script"; then
+        log::error "Build script failed"
+        exit 1
+    fi
+}
 
-build_hook_post_build
-popd
+prepare() {
+    local runtime_name=$1
+    TEMP_DIR=$(mktemp -d)
+    trap "rm -rf $TEMP_DIR" EXIT
+    log::stage "Cloning lambda base repo"
+    clone_base_repo "$runtime_name" "$TEMP_DIR/base"
+    log::stage "Building lambda base image"
+    build_docker_image "$TEMP_DIR/base/$ARCH" \
+        "mageops_lambda:$runtime_name-$ARCH" \
+        "Dockerfile.$runtime_name"
+}
 
-build_trim
-build_package
+sync_code() {
+    local source_dir=$1
+    local target_dir=$2
+    local excludes=("${@:3}")
+    log::stage "Syncing code to build directory"
+    rsync -av --itemize-changes --delete \
+        --exclude-from <(printf '%s\n' "${excludes[@]}") \
+        "$source_dir" "$target_dir"
+    log::success "Code synced"
+}
 
-log_stage "Build finished succesfully! 🎉"
-log_info "Artifact: 📦 ${LAMBDA_PACKAGE_NAME}.zip"
+build_package() {
+    local runtime_name=$1
+    local work_dir=$2
+    log::stage "Creating deploy package archive"
+    (
+        cd "$work_dir"
+        rm -vf "$PACKAGE_FILE"
+        zip -qr9 "$PACKAGE_FILE" .
+    )
+    log::success "Package created: $PACKAGE_FILE"
+}
 
+build_python() {
+    RUNTIME_NAME="python$PYTHON_VERSION"
+    PACKAGE_FILE="$PACKAGE_NAME-deploy-package.$RUNTIME_NAME.zip"
+    prepare "$RUNTIME_NAME"
+    sync_code "$CODE_DIR" "$TEMP_DIR/build" \
+        "${CODE_SYNC_GLOBAL_EXCLUDE[@]}" "${CODE_SYNC_PYTHON_EXCLUDE[@]}"
+    log::stage "Building python package"
+    log::info "Environment summary:"
+    local docker_python_version
+    docker_python_version=$(docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "python --version")
+    local docker_pip_version
+    docker_pip_version=$(docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "pip --version")
+    log::info " Python: $docker_python_version"
+    log::info " Pip: $docker_pip_version"
+    log::info "Installing pip dependencies"
+    docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "pip install -r requirements.txt -t /work"
+    log::info "Storing list of installed python deps"
+    docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "pip freeze | tee /work/requirements-built.txt"
+    log::stage "Precompiling python sources"
+    docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "python -m compileall /work/"
+    log::success "All done!"
+    build_package "$RUNTIME_NAME" "$TEMP_DIR/build"
+    mv "$TEMP_DIR/build/$PACKAGE_FILE" .
+}
+
+build_nodejs() {
+    RUNTIME_NAME="nodejs$NODEJS_VERSION"
+    PACKAGE_FILE="$PACKAGE_NAME-deploy-package.$RUNTIME_NAME.zip"
+    prepare "$RUNTIME_NAME"
+    sync_code "$CODE_DIR" "$TEMP_DIR/build" "${CODE_SYNC_GLOBAL_EXCLUDE[@]}" \
+        "${CODE_SYNC_NODEJS_EXCLUDE[@]}"
+    log::stage "Building nodejs package"
+    log::info "Environment summary:"
+    local docker_node_version
+    docker_node_version=$(docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "node --version")
+    local docker_npm_version
+    docker_npm_version=$(docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "npm --version")
+    log::info " Node: $docker_node_version"
+    log::info " Npm: $docker_npm_version"
+    log::info "Running npm install"
+    docker_run_script "$RUNTIME_NAME" "$TEMP_DIR/build" \
+        "npm install --production"
+    log::success "All done!"
+    build_package "$RUNTIME_NAME" "$TEMP_DIR/build"
+    mv "$TEMP_DIR/build/$PACKAGE_FILE" .
+}
+
+main() {
+    parse_arguments "$@"
+
+    if [[ $LANG == "python" ]]; then
+        build_python
+    elif [[ $LANG == "nodejs" ]]; then
+        build_nodejs
+    else
+        echo "Error: lang $LANG is not supported" >&2
+        print_help
+        exit 1
+    fi
+}
+
+main "$@"
